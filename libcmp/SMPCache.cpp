@@ -95,7 +95,21 @@ SMPCache::SMPCache(SMemorySystem *dms, const char *section, const char *name)
     , writeRetry("%s:writeRetry", name)
     , invalDirty("%s:invalDirty", name)
     , allocDirty("%s:allocDirty", name)
+    , compMiss("%s:compMiss", name)
+    , capMiss("%s:capMiss", name)
+    , confMiss("%s:confMiss", name) 
 {
+    I(SescConf->checkInt(section, "size"));
+    I(SescConf->checkInt(section, "bsize"));
+    int32_t size = SescConf->getInt(section, "size");
+    int32_t bsize = SescConf->getInt(section, "bsize");
+
+    I(size % bsize == 0); // Ensure size is divisible by bsize
+    cacheSize = size / bsize;
+
+    compulsoryTracker.clear();
+    lruList.clear();
+
     MemObj *lowerLevel = NULL;
     //printf("%d\n", dms->getPID());
 
@@ -432,10 +446,42 @@ void SMPCache::read(MemRequest *mreq)
 void SMPCache::doRead(MemRequest *mreq)
 {
     PAddr addr = mreq->getPAddr();
+    PAddr tag = calcTag(addr); // Use SESC's tag (includes tag + index)
+
+    // Check for compulsory miss
+    bool is_compulsory = (compulsoryTracker.find(tag) == compulsoryTracker.end());
+    if (is_compulsory) {
+        compulsoryTracker.insert(tag);
+        compMiss.inc();
+    }
+
+    // Simulate fully-associative LRU cache
+    bool ideal_hit = false;
+    auto it = std::find(lruList.begin(), lruList.end(), tag);
+    if (it != lruList.end()) {
+        // Hit in ideal cache: update LRU order (move to front)
+        lruList.erase(it);
+        lruList.push_front(tag);
+        ideal_hit = true;
+    } else {
+        // Miss in ideal cache: add to front, evict LRU if full
+        lruList.push_front(tag);
+        if (lruList.size() > cacheSize) {
+            lruList.pop_back();
+        }
+    }
+
     Line *l = cache->readLine(addr);
 
     if(!((l && l->canBeRead()))) {
         DEBUGPRINT("[%s] read %x miss at %lld\n",getSymbolicName(), addr,  globalClock );
+        if (!is_compulsory) {
+            if (!ideal_hit) {
+                capMiss.inc(); // Capacity miss (ideal cache also missed)
+            } else {
+                confMiss.inc(); // Conflict miss (ideal cache hit)
+            }
+        }
     }
 
     //if(addr==0x7e9ee000 || addr==0x7e9ee02c) sdprint=true;
@@ -533,11 +579,43 @@ void SMPCache::doWriteAgain(MemRequest *mreq) {
 void SMPCache::doWrite(MemRequest *mreq)
 {
     PAddr addr = mreq->getPAddr();
+    PAddr tag = calcTag(addr);
+
+    // Check for compulsory miss
+    bool is_compulsory = (compulsoryTracker.find(tag) == compulsoryTracker.end());
+    if (is_compulsory) {
+        compulsoryTracker.insert(tag);
+        compMiss.inc();
+    }
+
+    // Simulate fully-associative LRU cache
+    bool ideal_hit = false;
+    auto it = std::find(lruList.begin(), lruList.end(), tag);
+    if (it != lruList.end()) {
+        // Hit in ideal cache: update LRU order (move to front)
+        lruList.erase(it);
+        lruList.push_front(tag);
+        ideal_hit = true;
+    } else {
+        // Miss in ideal cache: add to front, evict LRU if full
+        lruList.push_front(tag);
+        if (lruList.size() > cacheSize) {
+            lruList.pop_back();
+        }
+    }
+
     Line *l = cache->writeLine(addr);
 
     if(!(l && l->canBeWritten())) {
         DEBUGPRINT("[%s] write %x (%x) miss at %lld [state %x]\n",
                    getSymbolicName(), addr, calcTag(addr), globalClock, (l?l->getState():-1) );
+        if (!is_compulsory) {
+            if (!ideal_hit) {
+                capMiss.inc(); // Capacity miss (ideal cache also missed)
+            } else {
+                confMiss.inc(); // Conflict miss (ideal cache hit)
+            }
+        }
     }
 
     if (l && l->canBeWritten()) {

@@ -81,6 +81,14 @@ protected:
 
     PendInvTable pendInvTable; // pending invalidate table
 
+    std::unordered_set<PAddr> compulsoryTracker;
+    std::list<PAddr> lruList;
+    size_t cacheSize; 
+
+    GStatsCntr compMiss;  // Compulsory miss counter
+    GStatsCntr capMiss;   // Capacity miss counter
+    GStatsCntr confMiss;  // Conflict miss counter
+    
     // BEGIN statistics
     GStatsCntr readHit;
     GStatsCntr writeHit;
