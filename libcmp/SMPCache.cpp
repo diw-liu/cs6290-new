@@ -107,7 +107,7 @@ SMPCache::SMPCache(SMemorySystem *dms, const char *section, const char *name)
     I(size % bsize == 0); // Ensure size is divisible by bsize
     cacheSize = size / bsize;
 
-    compulsoryTracker.clear();
+    tracker.clear();
     lruList.clear();
 
     MemObj *lowerLevel = NULL;
@@ -449,9 +449,9 @@ void SMPCache::doRead(MemRequest *mreq)
     PAddr tag = calcTag(addr); // Use SESC's tag (includes tag + index)
 
     // Check for compulsory miss
-    bool is_compulsory = (compulsoryTracker.find(tag) == compulsoryTracker.end());
+    bool is_compulsory = (tracker.find(tag) == tracker.end());
     if (is_compulsory) {
-        compulsoryTracker.insert(tag);
+        tracker.insert(tag);
         compMiss.inc();
     }
 
@@ -582,22 +582,21 @@ void SMPCache::doWrite(MemRequest *mreq)
     PAddr tag = calcTag(addr);
 
     // Check for compulsory miss
-    bool is_compulsory = (compulsoryTracker.find(tag) == compulsoryTracker.end());
+    bool is_compulsory = (tracker.find(tag) == tracker.end());
     if (is_compulsory) {
-        compulsoryTracker.insert(tag);
+        tracker.insert(tag);
         compMiss.inc();
     }
 
-    // Simulate fully-associative LRU cache
     bool ideal_hit = false;
     auto it = std::find(lruList.begin(), lruList.end(), tag);
     if (it != lruList.end()) {
-        // Hit in ideal cache: update LRU order (move to front)
+        // Hit in LRU
         lruList.erase(it);
         lruList.push_front(tag);
         ideal_hit = true;
     } else {
-        // Miss in ideal cache: add to front, evict LRU if full
+        // Miss in LRU
         lruList.push_front(tag);
         if (lruList.size() > cacheSize) {
             lruList.pop_back();

@@ -81,7 +81,7 @@ protected:
 
     PendInvTable pendInvTable; // pending invalidate table
 
-    std::unordered_set<PAddr> compulsoryTracker;
+    std::unordered_set<PAddr> tracker;
     std::list<PAddr> lruList;
     size_t cacheSize; 
 
