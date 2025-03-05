@@ -337,15 +337,17 @@ typename CacheAssoc<State, Addr_t, Energy>::Line
             if (!(*l)->isValid())
                 lineFree = l;
             else if (!(*l)->isLocked()) {
+                if (policy == LRU && lineFree == 0) {
+                    lineFree = l;
+                } 
                 if (policy == NXLRU) {
                     if (lineFree == 0) {
                         lineFree = l;
-                    } else if (lineFreeSecond == 0) {
+                        continue;
+                    } 
+                    if (lineFreeSecond == 0) {
                         lineFreeSecond = l;
-                    }
-                } else {
-                    if (lineFree == 0) {
-                        lineFree = l;
+                        continue;
                     }
                 }
             }
